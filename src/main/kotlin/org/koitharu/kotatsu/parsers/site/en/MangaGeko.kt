@@ -1,24 +1,26 @@
 package org.koitharu.kotatsu.parsers.site.en
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
+import org.koitharu.kotatsu.parsers.util.json.mapJSONNotNull
+import org.koitharu.kotatsu.parsers.util.json.mapJSONNotNullToSet
 import java.text.SimpleDateFormat
 import java.util.*
 
 @MangaSourceParser("MANGAGEKO", "MangaGeko", "en")
 internal class MangaGeko(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.MANGAGEKO, 30) {
+	PagedMangaParser(context, MangaParserSource.MANGAGEKO, 24) {
 
 	override val availableSortOrders: Set<SortOrder> =
 		EnumSet.of(SortOrder.POPULARITY, SortOrder.UPDATED, SortOrder.NEWEST)
 
-	override val configKeyDomain = ConfigKey.Domain("mgeko.cc", "www.mgeko.cc", "www.mgeko.com")
+	override val configKeyDomain = ConfigKey.Domain("www.mgeko.cc", "mgeko.cc", "www.mgeko.com")
 
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
@@ -37,60 +39,84 @@ internal class MangaGeko(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		val url = buildString {
-			append("https://")
-			append(domain)
-			when {
-				!filter.query.isNullOrEmpty() -> {
-					if (page > 1) {
-						return emptyList()
-					}
-					append("/search/?search=")
-					append(filter.query.urlEncoded())
-				}
-
-				else -> {
-
-					append("/browse-comics/?results=")
-					append(page)
-
-					if (filter.tags.isNotEmpty()) {
-						append("&tags_include=")
-						append(filter.tags.joinToString(separator = ",") { it.key })
-					}
-
-					if (filter.tagsExclude.isNotEmpty()) {
-						append("&tags_exclude=")
-						append(filter.tagsExclude.joinToString(separator = ",") { it.key })
-					}
-
-					append("&filter=")
-					when (order) {
-						SortOrder.POPULARITY -> append("views")
-						SortOrder.UPDATED -> append("Updated")
-						SortOrder.NEWEST -> append("New")
-						// SortOrder.RANDOM -> append("Random")
-						else -> append("Updated")
-					}
-				}
+		if (!filter.query.isNullOrEmpty()) {
+			if (page > 1) {
+				return emptyList()
+			}
+			val doc = webClient.httpGet(
+				"https://$domain/search/?search=${filter.query.urlEncoded()}",
+			).parseHtml()
+			return doc.select("li.novel-item").map { div ->
+				val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
+				val author = div.selectFirst("h6")?.text()?.removePrefix("Author(S): ")?.nullIfEmpty()
+				Manga(
+					id = generateUid(href),
+					title = div.selectFirstOrThrow("h4").text(),
+					altTitles = emptySet(),
+					url = href,
+					publicUrl = href.toAbsoluteUrl(domain),
+					rating = RATING_UNKNOWN,
+					contentRating = null,
+					coverUrl = div.selectFirstOrThrow("img").src(),
+					tags = emptySet(),
+					state = null,
+					authors = setOfNotNull(author),
+					source = source,
+				)
 			}
 		}
-		val doc = webClient.httpGet(url).parseHtml()
-		return doc.select("li.novel-item").map { div ->
-			val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
-			val author = div.selectFirstOrThrow("h6").text().removePrefix("Author(S): ").nullIfEmpty()
+
+		val url = buildBrowseApiUrl(page, order, filter)
+		val payload = webClient.httpGet(url).parseJson()
+		val html = payload.getString("results_html")
+		return parseComicCards(Jsoup.parse(html))
+	}
+
+	private fun buildBrowseApiUrl(page: Int, order: SortOrder, filter: MangaListFilter): String {
+		return buildString {
+			append("https://")
+			append(domain)
+			append("/browse-comics/data/?page=")
+			append(page)
+			append("&sort=")
+			append(
+				when (order) {
+					SortOrder.POPULARITY -> "popular_weekly"
+					SortOrder.UPDATED -> "latest"
+					SortOrder.NEWEST -> "recently_added"
+					else -> "latest"
+				},
+			)
+			if (filter.tags.isNotEmpty()) {
+				append("&tags=")
+				append(filter.tags.joinToString(",") { it.key })
+			}
+			if (filter.tagsExclude.isNotEmpty()) {
+				append("&exclude_genres=")
+				append(filter.tagsExclude.joinToString(",") { it.title })
+			}
+		}
+	}
+
+	private fun parseComicCards(doc: Document): List<Manga> {
+		return doc.select("article.comic-card").map { card ->
+			val link = card.selectFirst(".comic-card__title a")
+				?: card.selectFirst(".comic-card__cover a")
+				?: card.selectFirst("a[href]")
+				?: throw IllegalStateException("Comic card link not found")
+			val href = link.attrAsRelativeUrl("href")
 			Manga(
 				id = generateUid(href),
-				title = div.selectFirstOrThrow("h4").text(),
+				title = link.text().ifEmpty { card.selectFirst("img")?.attr("alt").orEmpty() },
 				altTitles = emptySet(),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(domain),
 				rating = RATING_UNKNOWN,
 				contentRating = null,
-				coverUrl = div.selectFirstOrThrow("img").src(),
+				coverUrl = card.selectFirst(".comic-card__cover img")?.src(),
 				tags = emptySet(),
 				state = null,
-				authors = setOfNotNull(author),
+				authors = emptySet(),
 				source = source,
 			)
 		}
@@ -98,24 +124,35 @@ internal class MangaGeko(context: MangaLoaderContext) :
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
 		val doc = webClient.httpGet("https://$domain/browse-comics/").parseHtml()
-		return doc.selectFirstOrThrow("div.genre-select-i").select("label").mapToSet { label ->
+		val genres = doc.select("button.chip[data-group=include_genres]").mapToSet { chip ->
 			MangaTag(
-				key = label.selectFirstOrThrow("input").attr("value"),
-				title = label.text(),
+				key = chip.attr("data-value"),
+				title = chip.text(),
 				source = source,
 			)
 		}
+		val tagSearch = webClient.httpGet("https://$domain/get/tags/?tag=the").parseJsonArray()
+		val apiTags = tagSearch.mapJSONNotNullToSet { jo ->
+			val id = jo.opt("id")?.toString()?.nullIfEmpty() ?: return@mapJSONNotNullToSet null
+			val name = jo.optString("tag_name").nullIfEmpty() ?: return@mapJSONNotNullToSet null
+			MangaTag(
+				key = id,
+				title = name,
+				source = source,
+			)
+		}
+		return genres + apiTags
 	}
 
-	override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
+	override suspend fun getDetails(manga: Manga): Manga {
 		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-		val chaptersDeferred = async { loadChapters(manga.url) }
-		val author = doc.selectFirstOrThrow(".author").textOrNull()
-		manga.copy(
-			altTitles = setOfNotNull(doc.selectFirstOrThrow(".alternative-title").textOrNull()),
-			state = when (doc.selectFirstOrThrow(".header-stats span:contains(Status) strong").text()) {
-				"Ongoing" -> MangaState.ONGOING
-				"Completed" -> MangaState.FINISHED
+		val chapters = loadChapters(manga.url)
+		return manga.copy(
+			altTitles = setOfNotNull(doc.selectFirst(".alternative-title")?.textOrNull()),
+			state = when (doc.selectFirst(".header-stats span:contains(Status) strong")?.text()?.lowercase()) {
+				"ongoing" -> MangaState.ONGOING
+				"completed" -> MangaState.FINISHED
+				"hiatus" -> MangaState.PAUSED
 				else -> null
 			},
 			tags = doc.select(".categories ul li a").mapToSet { a ->
@@ -125,52 +162,59 @@ internal class MangaGeko(context: MangaLoaderContext) :
 					source = source,
 				)
 			},
-			authors = setOfNotNull(author),
-			description = doc.selectFirstOrThrow(".description").html(),
-			chapters = chaptersDeferred.await(),
+			authors = setOfNotNull(doc.selectFirst(".author")?.textOrNull()),
+			description = doc.selectFirst(".description")?.html(),
+			chapters = chapters,
 		)
 	}
 
 	private suspend fun loadChapters(mangaUrl: String): List<MangaChapter> {
-		val urlChapter = mangaUrl + "all-chapters/"
-		val doc = webClient.httpGet(urlChapter.toAbsoluteUrl(domain)).parseHtml()
+		val doc = webClient.httpGet("${mangaUrl.toAbsoluteUrl(domain).trimEnd('/')}/all-chapters/").parseHtml()
+		val chaptersRoot = doc.getElementById("chapters") ?: doc.selectFirst("ul.chapter-list")?.parent()
 		val dateFormat = SimpleDateFormat("MMM dd, yyyy", sourceLocale)
-		return doc.requireElementById("chapters").select("ul.chapter-list li")
-			.mapChapters(reversed = true) { i, li ->
-				val a = li.selectFirstOrThrow("a")
-				val url = a.attrAsRelativeUrl("href")
-				val name = li.selectFirstOrThrow(".chapter-title").text()
-				val dateText = li.select(".chapter-update").attr("datetime").substringBeforeLast(',')
-					.replace(".", "").replace("Sept", "Sep")
-				MangaChapter(
-					id = generateUid(url),
-					title = name,
-					number = i + 1f,
-					volume = 0,
-					url = url,
-					scanlator = null,
-					uploadDate = dateFormat.parseSafe(dateText),
-					branch = null,
+		return chaptersRoot?.select("ul.chapter-list > li")?.mapChapters(reversed = true) { i, li ->
+			val a = li.selectFirst("a") ?: return@mapChapters null
+			val url = a.attrAsRelativeUrl("href")
+			val name = li.selectFirst(".chapter-title")?.text()?.trim()?.nullIfEmpty()
+				?: a.attr("title")?.removePrefix("Chapter ")?.nullIfEmpty()
+				?: url.substringAfterLast('/').removeSuffix('/')
+			val dateText = li.selectFirst(".chapter-update")?.attr("datetime")
+				?.substringBeforeLast(',')
+				?.replace(".", "")
+				?.replace("Sept", "Sep")
+			MangaChapter(
+				id = generateUid(url),
+				title = name,
+				number = i + 1f,
+				volume = 0,
+				url = url,
+				scanlator = null,
+				uploadDate = dateFormat.parseSafe(dateText),
+				branch = null,
+				source = source,
+			)
+		}.orEmpty()
+	}
+
+	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+		return doc.select("img[src]")
+			.mapNotNull { it.attr("src").nullIfEmpty() }
+			.filterNot { src ->
+				src.startsWith("data:image") ||
+					src.contains("credits-mgeko.png") ||
+					src.contains("loading_api_transparent") ||
+					src.contains("logo_200x200")
+			}
+			.distinct()
+			.map { url ->
+				val finalUrl = if (url.startsWith("http")) url else url.toAbsoluteUrl(domain)
+				MangaPage(
+					id = generateUid(finalUrl),
+					url = finalUrl.toRelativeUrl(domain),
+					preview = null,
 					source = source,
 				)
 			}
 	}
-
-    override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val fullUrl = chapter.url.toAbsoluteUrl(domain)
-        val doc = webClient.httpGet(fullUrl).parseHtml()
-        return doc.select("center img")
-            .mapNotNull { it.attr("src").takeIf { src -> src.isNotBlank() } }
-            // remove all invaild images + credits
-            .filterNot { it.startsWith("data:image") || it.contains("credits-mgeko.png") }
-            .distinct().map { url ->
-                val finalUrl = url.toRelativeUrl(domain)
-                MangaPage(
-                    id = generateUid(finalUrl),
-                    url = finalUrl,
-                    preview = null,
-                    source = source,
-                )
-            }
-    }
 }
