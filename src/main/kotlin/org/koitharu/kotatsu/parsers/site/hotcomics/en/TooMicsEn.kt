@@ -5,7 +5,7 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.hotcomics.HotComicsParser
 
-@MangaSourceParser("TOOMICSEN", "TooMicsEn", "en")
+@MangaSourceParser("TOOMICSEN", "TooMics English", "en")
 internal class TooMicsEn(context: MangaLoaderContext) :
 	HotComicsParser(context, MangaParserSource.TOOMICSEN, "toomics.com/en") {
 	override val isSearchSupported = false

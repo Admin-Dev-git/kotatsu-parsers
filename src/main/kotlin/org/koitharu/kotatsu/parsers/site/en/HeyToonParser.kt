@@ -39,7 +39,7 @@ import java.util.EnumSet
 internal class HeyToonParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.HEYTOON, pageSize = 54, searchPageSize = 20) {
 
-	override val configKeyDomain = ConfigKey.Domain("heytoon.net")
+	override val configKeyDomain = ConfigKey.Domain("toonhey.com", "heytoon.net")
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)

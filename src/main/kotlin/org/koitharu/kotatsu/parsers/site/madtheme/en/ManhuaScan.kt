@@ -30,7 +30,7 @@ import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 
-@MangaSourceParser("MANHUASCAN", "kaliscan.io", "en")
+@MangaSourceParser("MANHUASCAN", "KaliScan", "en")
 internal class ManhuaScan(context: MangaLoaderContext) :
 	MadthemeParser(context, MangaParserSource.MANHUASCAN, "kaliscan.io") {
 
