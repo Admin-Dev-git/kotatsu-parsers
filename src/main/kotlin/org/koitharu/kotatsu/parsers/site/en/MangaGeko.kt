@@ -40,36 +40,44 @@ internal class MangaGeko(context: MangaLoaderContext) :
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
 		if (!filter.query.isNullOrEmpty()) {
-			if (page > 1) {
-				return emptyList()
+			val url = buildBrowseApiUrl(page, order, filter)
+			val payload = webClient.httpGet(url).parseJson()
+			val html = payload.getString("results_html")
+			val results = parseComicCards(Jsoup.parse(html))
+			if (results.isNotEmpty() || page > 1) {
+				return results
 			}
-			val doc = webClient.httpGet(
-				"https://$domain/search/?search=${filter.query.urlEncoded()}",
-			).parseHtml()
-			return doc.select("li.novel-item").map { div ->
-				val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
-				val author = div.selectFirst("h6")?.text()?.removePrefix("Author(S): ")?.nullIfEmpty()
-				Manga(
-					id = generateUid(href),
-					title = div.selectFirstOrThrow("h4").text(),
-					altTitles = emptySet(),
-					url = href,
-					publicUrl = href.toAbsoluteUrl(domain),
-					rating = RATING_UNKNOWN,
-					contentRating = null,
-					coverUrl = div.selectFirstOrThrow("img").src(),
-					tags = emptySet(),
-					state = null,
-					authors = setOfNotNull(author),
-					source = source,
-				)
-			}
+			return parseLegacySearchResults(filter.query)
 		}
 
 		val url = buildBrowseApiUrl(page, order, filter)
 		val payload = webClient.httpGet(url).parseJson()
 		val html = payload.getString("results_html")
 		return parseComicCards(Jsoup.parse(html))
+	}
+
+	private suspend fun parseLegacySearchResults(query: String): List<Manga> {
+		val doc = webClient.httpGet(
+			"https://$domain/search/?search=${query.urlEncoded()}",
+		).parseHtml()
+		return doc.select("li.novel-item").map { div ->
+			val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
+			val author = div.selectFirst("h6")?.text()?.removePrefix("Author(S): ")?.nullIfEmpty()
+			Manga(
+				id = generateUid(href),
+				title = div.selectFirstOrThrow("h4").text(),
+				altTitles = emptySet(),
+				url = href,
+				publicUrl = href.toAbsoluteUrl(domain),
+				rating = RATING_UNKNOWN,
+				contentRating = null,
+				coverUrl = div.selectFirstOrThrow("img").src(),
+				tags = emptySet(),
+				state = null,
+				authors = setOfNotNull(author),
+				source = source,
+			)
+		}
 	}
 
 	private fun buildBrowseApiUrl(page: Int, order: SortOrder, filter: MangaListFilter): String {
@@ -87,9 +95,21 @@ internal class MangaGeko(context: MangaLoaderContext) :
 					else -> "latest"
 				},
 			)
+			filter.query?.let { query ->
+				append("&q=")
+				append(query.urlEncoded())
+			}
 			if (filter.tags.isNotEmpty()) {
-				append("&tags=")
-				append(filter.tags.joinToString(",") { it.key })
+				val genreTags = filter.tags.filter { tag -> tag.key.any { !it.isDigit() } }
+				val numericTags = filter.tags.filter { tag -> tag.key.all { it.isDigit() } }
+				if (genreTags.isNotEmpty()) {
+					append("&include_genres=")
+					append(genreTags.joinToString(",") { it.key })
+				}
+				if (numericTags.isNotEmpty()) {
+					append("&tags=")
+					append(numericTags.joinToString(",") { it.key })
+				}
 			}
 			if (filter.tagsExclude.isNotEmpty()) {
 				append("&exclude_genres=")
@@ -211,7 +231,7 @@ internal class MangaGeko(context: MangaLoaderContext) :
 				val finalUrl = if (url.startsWith("http")) url else url.toAbsoluteUrl(domain)
 				MangaPage(
 					id = generateUid(finalUrl),
-					url = finalUrl.toRelativeUrl(domain),
+					url = finalUrl,
 					preview = null,
 					source = source,
 				)

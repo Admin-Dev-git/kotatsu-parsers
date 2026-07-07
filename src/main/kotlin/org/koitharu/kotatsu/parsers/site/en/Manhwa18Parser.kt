@@ -116,7 +116,7 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 			altTitles = setOfNotNull(details.optString("other_name").nullIfEmpty()),
 			authors = emptySet(),
 			description = details.optString("pilot").nullIfEmpty(),
-			tags = emptySet(),
+			tags = parseMangaTags(details),
 			state = details.optInt("status_id", 0).toMangaState(),
 			coverUrl = details.optString("thumb_url").nullIfEmpty()
 				?: details.optString("cover_url").nullIfEmpty(),
@@ -177,6 +177,35 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 		)
 	}
 
+	private fun parseMangaTags(details: JSONObject): Set<MangaTag> {
+		val result = LinkedHashSet<MangaTag>()
+		details.optJSONArray("genres")?.let { genres ->
+			for (item in genres) {
+				if (item !is JSONObject) continue
+				val id = item.opt("id")?.toString()?.nullIfEmpty() ?: continue
+				val name = item.optString("name").nullIfEmpty() ?: continue
+				result += MangaTag(
+					key = id,
+					title = name,
+					source = source,
+				)
+			}
+		}
+		details.optJSONArray("tags")?.let { tags ->
+			for (item in tags) {
+				if (item !is JSONObject) continue
+				val id = item.opt("id")?.toString()?.nullIfEmpty() ?: continue
+				val name = item.optString("name").nullIfEmpty() ?: continue
+				result += MangaTag(
+					key = id,
+					title = name,
+					source = source,
+				)
+			}
+		}
+		return result
+	}
+
 	private fun Int.toMangaState(): MangaState? = when (this) {
 		1 -> MangaState.ONGOING
 		2 -> MangaState.PAUSED
@@ -199,9 +228,8 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 		val result = LinkedHashMap<String, MangaTag>(genres.length())
 		for (item in genres) {
 			if (item !is JSONObject) continue
-			val id = item.optString("id")
-			val name = item.optString("name")
-			if (id.isEmpty() || name.isEmpty()) continue
+			val id = item.opt("id")?.toString()?.nullIfEmpty() ?: continue
+			val name = item.optString("name").nullIfEmpty() ?: continue
 			result[name.lowercase(Locale.ENGLISH)] = MangaTag(
 				title = name.toTitleCase(Locale.ENGLISH),
 				key = id,
