@@ -17,18 +17,46 @@ public object CloudFlareHelper {
 
     public fun checkResponseForProtection(response: Response): Int {
         if (response.code != HTTP_FORBIDDEN && response.code != HTTP_UNAVAILABLE) {
-            return PROTECTION_NOT_DETECTED
+            // Also check 429 (rate limited) which CF sometimes uses
+            if (response.code != 429) {
+                return PROTECTION_NOT_DETECTED
+            }
         }
+        // Check CF server header
+        val server = response.header("server") ?: ""
+        val isCfServer = server.contains("cloudflare", ignoreCase = true)
         val content = try {
             response.peekBody(Long.MAX_VALUE).use {
                 Jsoup.parse(it.byteStream(), Charsets.UTF_8.name(), response.request.url.toString())
             }
         } catch (_: IllegalStateException) {
-            return PROTECTION_NOT_DETECTED
+            return if (isCfServer && response.code == HTTP_FORBIDDEN) {
+                PROTECTION_CAPTCHA
+            } else {
+                PROTECTION_NOT_DETECTED
+            }
         }
         return when {
+            // Blocked page
             content.selectFirst("h2[data-translate=\"blocked_why_headline\"]") != null -> PROTECTION_BLOCKED
-            content.getElementById("challenge-error-title") != null || content.getElementById("challenge-error-text") != null -> PROTECTION_CAPTCHA
+            content.selectFirst("div.cf-error-details") != null -> PROTECTION_BLOCKED
+
+            // Challenge/Captcha page — classic and Turnstile variants
+            content.getElementById("challenge-error-title") != null -> PROTECTION_CAPTCHA
+            content.getElementById("challenge-error-text") != null -> PROTECTION_CAPTCHA
+            content.getElementById("challenge-running") != null -> PROTECTION_CAPTCHA
+            content.getElementById("challenge-stage") != null -> PROTECTION_CAPTCHA
+            content.getElementById("challenge-form") != null -> PROTECTION_CAPTCHA
+            content.selectFirst("div#turnstile-wrapper") != null -> PROTECTION_CAPTCHA
+            content.selectFirst("div.cf-turnstile") != null -> PROTECTION_CAPTCHA
+            content.selectFirst("script[src*=\"challenges.cloudflare.com\"]") != null -> PROTECTION_CAPTCHA
+            content.selectFirst("script[src*=\"turnstile\"]") != null -> PROTECTION_CAPTCHA
+            // Managed challenge (IUAM - "I'm Under Attack Mode")
+            content.selectFirst("div#cf-please-wait") != null -> PROTECTION_CAPTCHA
+            content.selectFirst("form[id=\"challenge-form\"][action*=\"__cf_chl\"]") != null -> PROTECTION_CAPTCHA
+            // Fallback: CF server + 403/503 with challenge-like page title
+            isCfServer && content.title().contains("Just a moment", ignoreCase = true) -> PROTECTION_CAPTCHA
+            isCfServer && content.title().contains("Attention Required", ignoreCase = true) -> PROTECTION_CAPTCHA
 
             else -> PROTECTION_NOT_DETECTED
         }
