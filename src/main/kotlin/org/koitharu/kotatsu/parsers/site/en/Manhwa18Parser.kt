@@ -140,13 +140,16 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseInertiaPage().inertiaProps()
+		val fullUrl = chapter.url.toAbsoluteUrl(domain)
+		val doc = webClient.httpGet(fullUrl).parseInertiaPage().inertiaProps()
 		val html = doc.optString("chapterContent")
 		if (html.isEmpty()) {
 			return emptyList()
 		}
-		return Jsoup.parse(html).select("img[src]").mapNotNull { img ->
-			val url = img.absUrl("src").nullIfEmpty() ?: return@mapNotNull null
+		return Jsoup.parse(html, "https://$domain").select("img[src]").mapNotNull { img ->
+			val url = img.absUrl("src").nullIfEmpty()
+				?: img.attr("src").nullIfEmpty()
+				?: return@mapNotNull null
 			MangaPage(
 				id = generateUid(url),
 				url = url,
@@ -180,8 +183,8 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 	private fun parseMangaTags(details: JSONObject): Set<MangaTag> {
 		val result = LinkedHashSet<MangaTag>()
 		details.optJSONArray("genres")?.let { genres ->
-			for (item in genres) {
-				if (item !is JSONObject) continue
+			for (i in 0 until genres.length()) {
+				val item = genres.optJSONObject(i) ?: continue
 				val id = item.opt("id")?.toString()?.nullIfEmpty() ?: continue
 				val name = item.optString("name").nullIfEmpty() ?: continue
 				result += MangaTag(
@@ -192,8 +195,8 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 			}
 		}
 		details.optJSONArray("tags")?.let { tags ->
-			for (item in tags) {
-				if (item !is JSONObject) continue
+			for (i in 0 until tags.length()) {
+				val item = tags.optJSONObject(i) ?: continue
 				val id = item.opt("id")?.toString()?.nullIfEmpty() ?: continue
 				val name = item.optString("name").nullIfEmpty() ?: continue
 				result += MangaTag(
@@ -226,8 +229,8 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 		val props = webClient.httpGet("https://$domain/tim-kiem").parseInertiaPage().inertiaProps()
 		val genres = props.optJSONArray("genres") ?: return emptyMap()
 		val result = LinkedHashMap<String, MangaTag>(genres.length())
-		for (item in genres) {
-			if (item !is JSONObject) continue
+		for (i in 0 until genres.length()) {
+			val item = genres.optJSONObject(i) ?: continue
 			val id = item.opt("id")?.toString()?.nullIfEmpty() ?: continue
 			val name = item.optString("name").nullIfEmpty() ?: continue
 			result[name.lowercase(Locale.ENGLISH)] = MangaTag(
