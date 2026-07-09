@@ -1,5 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.en
 
+import okhttp3.Interceptor
+import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
@@ -36,6 +38,20 @@ internal class MangaGeko(context: MangaLoaderContext) :
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
 		keys.add(userAgentKey)
+	}
+
+	override fun intercept(chain: Interceptor.Chain): Response {
+		val request = chain.request()
+		val url = request.url
+		// Add Referer for CDN image requests (imgsrv4.com, etc.)
+		return if (url.host != domain && url.host.contains("imgsrv")) {
+			val newRequest = request.newBuilder()
+				.header("Referer", "https://$domain/")
+				.build()
+			chain.proceed(newRequest)
+		} else {
+			chain.proceed(request)
+		}
 	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {

@@ -4,6 +4,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
+import okhttp3.Response
 import org.json.JSONObject
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
@@ -27,6 +29,20 @@ internal abstract class LikeMangaParser(
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
 		keys.add(userAgentKey)
+	}
+
+	override fun intercept(chain: Interceptor.Chain): Response {
+		val request = chain.request()
+		val url = request.url
+		// Add Referer header for CDN image requests (mgread.io, etc.)
+		return if (url.host != domain && url.host.contains("mgread")) {
+			val newRequest = request.newBuilder()
+				.header("Referer", "https://$domain/")
+				.build()
+			chain.proceed(newRequest)
+		} else {
+			chain.proceed(request)
+		}
 	}
 
 	override val availableSortOrders: Set<SortOrder> =

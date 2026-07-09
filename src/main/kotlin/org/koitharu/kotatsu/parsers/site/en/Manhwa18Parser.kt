@@ -1,5 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.en
 
+import okhttp3.Interceptor
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
@@ -22,6 +24,20 @@ internal class Manhwa18Parser(context: MangaLoaderContext) :
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
 		super.onCreateConfig(keys)
 		keys.add(userAgentKey)
+	}
+
+	override fun intercept(chain: Interceptor.Chain): Response {
+		val request = chain.request()
+		val url = request.url
+		// Add Referer for CDN image requests (min.manhwa18.net)
+		return if (url.host != domain && (url.host.contains("manhwa18") || url.host.contains("min."))) {
+			val newRequest = request.newBuilder()
+				.header("Referer", "https://$domain/")
+				.build()
+			chain.proceed(newRequest)
+		} else {
+			chain.proceed(request)
+		}
 	}
 
 	override val availableSortOrders: Set<SortOrder>
