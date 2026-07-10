@@ -55,11 +55,12 @@ internal class MangaGeko(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+		val baseUrl = "https://$domain"
 		if (!filter.query.isNullOrEmpty()) {
 			val url = buildBrowseApiUrl(page, order, filter)
 			val payload = webClient.httpGet(url).parseJson()
 			val html = payload.getString("results_html")
-			val results = parseComicCards(Jsoup.parse(html))
+			val results = parseComicCards(Jsoup.parse(html, baseUrl))
 			if (results.isNotEmpty() || page > 1) {
 				return results
 			}
@@ -69,7 +70,7 @@ internal class MangaGeko(context: MangaLoaderContext) :
 		val url = buildBrowseApiUrl(page, order, filter)
 		val payload = webClient.httpGet(url).parseJson()
 		val html = payload.getString("results_html")
-		return parseComicCards(Jsoup.parse(html))
+		return parseComicCards(Jsoup.parse(html, baseUrl))
 	}
 
 	private suspend fun parseLegacySearchResults(query: String): List<Manga> {
