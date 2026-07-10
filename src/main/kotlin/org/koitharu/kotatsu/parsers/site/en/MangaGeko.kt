@@ -87,7 +87,7 @@ internal class MangaGeko(context: MangaLoaderContext) :
 				publicUrl = href.toAbsoluteUrl(domain),
 				rating = RATING_UNKNOWN,
 				contentRating = null,
-				coverUrl = div.selectFirstOrThrow("img").src(),
+				coverUrl = div.selectFirstOrThrow("img").src()?.toDomainUrl(),
 				tags = emptySet(),
 				state = null,
 				authors = setOfNotNull(author),
@@ -149,13 +149,26 @@ internal class MangaGeko(context: MangaLoaderContext) :
 				publicUrl = href.toAbsoluteUrl(domain),
 				rating = RATING_UNKNOWN,
 				contentRating = null,
-				coverUrl = card.selectFirst(".comic-card__cover img")?.src(),
+				coverUrl = card.selectFirst(".comic-card__cover img")?.src()?.toDomainUrl(),
 				tags = emptySet(),
 				state = null,
 				authors = emptySet(),
 				source = source,
 			)
 		}
+	}
+
+	/**
+	 * Convert CDN URLs (imgsrv4.com) to source domain URLs so the app's
+	 * cf_clearance cookie for mgeko.cc covers image requests too.
+	 */
+	private fun String.toDomainUrl(): String {
+		if (contains("imgsrv4.com")) {
+			val path = substringAfter("imgsrv4.com")
+				.removePrefix("/avatar/288x412") // strip resize prefix if present
+			return "https://$domain$path"
+		}
+		return this
 	}
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
@@ -244,7 +257,7 @@ internal class MangaGeko(context: MangaLoaderContext) :
 			}
 			.distinct()
 			.map { url ->
-				val finalUrl = if (url.startsWith("http")) url else url.toAbsoluteUrl(domain)
+				val finalUrl = if (url.startsWith("http")) url.toDomainUrl() else url.toAbsoluteUrl(domain)
 				MangaPage(
 					id = generateUid(finalUrl),
 					url = finalUrl,
