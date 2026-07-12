@@ -28,6 +28,9 @@ internal abstract class HotComicsParser(
 		.add("User-Agent", UserAgents.CHROME_DESKTOP)
 		.add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 		.add("Accept-Language", "en-US,en;q=0.9")
+		.add("Sec-CH-UA", "\"Google Chrome\";v=\"120\", \"Chromium\";v=\"120\", \"Not=A?Brand\";v=\"99\"")
+		.add("Sec-CH-UA-Mobile", "?0")
+		.add("Sec-CH-UA-Platform", "\"Windows\"")
 		.build()
 
 	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
