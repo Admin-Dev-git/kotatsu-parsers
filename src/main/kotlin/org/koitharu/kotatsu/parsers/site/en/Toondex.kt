@@ -1,4 +1,4 @@
-package org.koitharu.kotatsu.parsers.site.madtheme.en
+package org.koitharu.kotatsu.parsers.site.en
 
 import org.json.JSONObject
 import org.jsoup.nodes.Document
@@ -12,13 +12,9 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * Toonily.Me has moved to Toondex.io (Next.js SSR).
- * This parser handles the new site structure.
- */
-@MangaSourceParser("TOONILY_ME", "Toonily.Me", "en")
-internal class ToonilyMe(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.TOONILY_ME, pageSize = 24) {
+@MangaSourceParser("TOONDEX", "Toondex", "en")
+internal class Toondex(context: MangaLoaderContext) :
+	PagedMangaParser(context, MangaParserSource.TOONDEX, pageSize = 24) {
 
 	override val configKeyDomain = ConfigKey.Domain("toondex.io")
 
@@ -74,8 +70,9 @@ internal class ToonilyMe(context: MangaLoaderContext) :
 		val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
 		dateFormat.timeZone = TimeZone.getTimeZone("UTC")
 		val chapters = m.optJSONArray("chapters")?.mapJSON { jo ->
+			val slug = jo.getString("slug")
 			MangaChapter(
-				id = generateUid(jo.getString("slug")),
+				id = generateUid(slug),
 				title = jo.optString("name").nullIfEmpty(),
 				number = jo.optDouble("number", 0.0).toFloat(),
 				volume = 0,
@@ -94,7 +91,11 @@ internal class ToonilyMe(context: MangaLoaderContext) :
 			description = m.optString("summary").nullIfEmpty(),
 			tags = m.optJSONArray("genres")?.mapJSONNotNullToSet { jo ->
 				val key = jo.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
-				MangaTag(key = key, title = jo.optString("name"), source = source)
+				MangaTag(
+					key = key,
+					title = jo.optString("name"),
+					source = source,
+				)
 			}.orEmpty(),
 			authors = m.optJSONArray("authors")?.mapJSONNotNullToSet { jo ->
 				jo.optString("name").nullIfEmpty()
@@ -128,7 +129,8 @@ internal class ToonilyMe(context: MangaLoaderContext) :
 	private fun extractPageProps(doc: Document): JSONObject {
 		val script = doc.selectFirst("script#__NEXT_DATA__")
 			?: throw IllegalStateException("__NEXT_DATA__ not found")
-		return JSONObject(script.data()).getJSONObject("props").getJSONObject("pageProps")
+		val json = JSONObject(script.data())
+		return json.getJSONObject("props").getJSONObject("pageProps")
 	}
 
 	private fun parseMangaItem(item: JSONObject): Manga {
@@ -161,7 +163,11 @@ internal class ToonilyMe(context: MangaLoaderContext) :
 		val genres = pageProps.getJSONArray("genres")
 		return genres.mapJSONNotNullToSet { jo ->
 			val slug = jo.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
-			MangaTag(key = slug, title = jo.optString("name"), source = source)
+			MangaTag(
+				key = slug,
+				title = jo.optString("name"),
+				source = source,
+			)
 		}
 	}
 }
