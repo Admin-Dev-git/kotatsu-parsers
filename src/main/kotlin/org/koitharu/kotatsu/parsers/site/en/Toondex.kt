@@ -116,14 +116,20 @@ internal class Toondex(context: MangaLoaderContext) :
 		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
 		val pageProps = extractPageProps(doc)
 		val images = pageProps.getJSONObject("initialChapter").getJSONArray("images")
-		return images.mapJSON { url ->
-			MangaPage(
-				id = generateUid(url.toString()),
-				url = url.toString(),
-				preview = null,
-				source = source,
+		val len = images.length()
+		val pages = ArrayList<MangaPage>(len)
+		for (i in 0 until len) {
+			val url = images.getString(i)
+			pages.add(
+				MangaPage(
+					id = generateUid(url),
+					url = url,
+					preview = null,
+					source = source,
+				),
 			)
 		}
+		return pages
 	}
 
 	private fun extractPageProps(doc: Document): JSONObject {
