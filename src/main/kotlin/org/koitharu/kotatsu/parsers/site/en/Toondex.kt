@@ -12,9 +12,9 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("TOONILY_ME", "Toonily.Me", "en")
-internal class ToonilyMe(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.TOONILY_ME, pageSize = 24) {
+@MangaSourceParser("TOONDEX", "Toondex", "en")
+internal class Toondex(context: MangaLoaderContext) :
+	PagedMangaParser(context, MangaParserSource.TOONDEX, pageSize = 24) {
 
 	override val configKeyDomain = ConfigKey.Domain("toondex.io")
 
