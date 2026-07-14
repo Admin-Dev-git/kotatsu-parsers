@@ -1,6 +1,8 @@
 package org.koitharu.kotatsu.parsers.network
 
+import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -17,12 +19,10 @@ public object CloudFlareHelper {
 
     public fun checkResponseForProtection(response: Response): Int {
         if (response.code != HTTP_FORBIDDEN && response.code != HTTP_UNAVAILABLE) {
-            // Also check 429 (rate limited) which CF sometimes uses
             if (response.code != 429) {
                 return PROTECTION_NOT_DETECTED
             }
         }
-        // Check CF server header
         val server = response.header("server") ?: ""
         val isCfServer = server.contains("cloudflare", ignoreCase = true)
         val content = try {
@@ -37,11 +37,9 @@ public object CloudFlareHelper {
             }
         }
         return when {
-            // Blocked page
             content.selectFirst("h2[data-translate=\"blocked_why_headline\"]") != null -> PROTECTION_BLOCKED
             content.selectFirst("div.cf-error-details") != null -> PROTECTION_BLOCKED
 
-            // Challenge/Captcha page — classic and Turnstile variants
             content.getElementById("challenge-error-title") != null -> PROTECTION_CAPTCHA
             content.getElementById("challenge-error-text") != null -> PROTECTION_CAPTCHA
             content.getElementById("challenge-running") != null -> PROTECTION_CAPTCHA
@@ -51,10 +49,8 @@ public object CloudFlareHelper {
             content.selectFirst("div.cf-turnstile") != null -> PROTECTION_CAPTCHA
             content.selectFirst("script[src*=\"challenges.cloudflare.com\"]") != null -> PROTECTION_CAPTCHA
             content.selectFirst("script[src*=\"turnstile\"]") != null -> PROTECTION_CAPTCHA
-            // Managed challenge (IUAM - "I'm Under Attack Mode")
             content.selectFirst("div#cf-please-wait") != null -> PROTECTION_CAPTCHA
             content.selectFirst("form[id=\"challenge-form\"][action*=\"__cf_chl\"]") != null -> PROTECTION_CAPTCHA
-            // Fallback: CF server + 403/503 with challenge-like page title
             isCfServer && content.title().contains("Just a moment", ignoreCase = true) -> PROTECTION_CAPTCHA
             isCfServer && content.title().contains("Attention Required", ignoreCase = true) -> PROTECTION_CAPTCHA
 
@@ -71,5 +67,31 @@ public object CloudFlareHelper {
             || name.startsWith("_cf")
             || name.startsWith("__cf")
             || name == "csrftoken"
+    }
+
+    public fun clearCookies(cookieJar: CookieJar, url: String) {
+        val httpUrl = url.toHttpUrl()
+        val domain = httpUrl.host
+        val existing = cookieJar.loadForRequest(httpUrl)
+        val toRemove = existing.filter { isCloudFlareCookie(it.name) }
+        if (toRemove.isEmpty()) return
+        val expiredCookies = toRemove.map { cookie ->
+            Cookie.Builder()
+                .name(cookie.name)
+                .value("")
+                .domain(domain)
+                .path("/")
+                .expiresAt(0L)
+                .build()
+        }
+        cookieJar.saveFromResponse(httpUrl, expiredCookies)
+    }
+
+    public fun checkAndClear(cookieJar: CookieJar, response: Response): Int {
+        val protection = checkResponseForProtection(response)
+        if (protection != PROTECTION_NOT_DETECTED) {
+            clearCookies(cookieJar, response.request.url.toString())
+        }
+        return protection
     }
 }

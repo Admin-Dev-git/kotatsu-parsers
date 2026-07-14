@@ -111,13 +111,19 @@ public class OkHttpWebClient(
 	}
 
 	private fun Response.ensureSuccess(): Response {
-		val exception: Exception? = when (code) { // Catch some error codes, not all
-			HttpURLConnection.HTTP_NOT_FOUND -> NotFoundException(message, request.url.toString())
+		val requestUrl = request.url.toString()
+		val exception: Exception? = when (code) {
 			HttpURLConnection.HTTP_UNAUTHORIZED -> request.tag(MangaSource::class.java)?.let {
 				AuthRequiredException(it)
-			} ?: HttpStatusException(message, code, request.url.toString())
+			} ?: HttpStatusException(message, code, requestUrl)
 
-			in 400..599 -> HttpStatusException(message, code, request.url.toString())
+			in 400..599 -> {
+				if (code == HttpURLConnection.HTTP_FORBIDDEN || code == HttpURLConnection.HTTP_UNAVAILABLE || code == 429) {
+					CloudFlareHelper.checkAndClear(httpClient.cookieJar, this)
+				}
+				HttpStatusException(message, code, requestUrl)
+			}
+
 			else -> null
 		}
 		if (exception != null) {

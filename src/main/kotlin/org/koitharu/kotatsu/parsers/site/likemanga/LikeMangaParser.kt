@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.likemanga
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -30,6 +31,15 @@ internal abstract class LikeMangaParser(
 		super.onCreateConfig(keys)
 		keys.add(userAgentKey)
 	}
+
+	override fun getRequestHeaders(): Headers = Headers.Builder()
+		.add("User-Agent", config[userAgentKey])
+		.add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+		.add("Accept-Language", "en-US,en;q=0.9")
+		.add("Sec-CH-UA", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not?A_Brand\";v=\"24\"")
+		.add("Sec-CH-UA-Mobile", "?1")
+		.add("Sec-CH-UA-Platform", "\"Android\"")
+		.build()
 
 	override fun intercept(chain: Interceptor.Chain): Response {
 		val request = chain.request()

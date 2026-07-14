@@ -8,6 +8,7 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import okhttp3.Headers
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.mapJSON
 import org.koitharu.kotatsu.parsers.util.json.mapJSONToSet
@@ -20,6 +21,15 @@ internal class MgRead(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MGREAD, pageSize = 24, searchPageSize = 24) {
 
 	override val configKeyDomain = ConfigKey.Domain("mgread.io")
+
+	override fun getRequestHeaders(): Headers = Headers.Builder()
+		.add("User-Agent", config[userAgentKey])
+		.add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+		.add("Accept-Language", "en-US,en;q=0.9")
+		.add("Sec-CH-UA", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not?A_Brand\";v=\"24\"")
+		.add("Sec-CH-UA-Mobile", "?1")
+		.add("Sec-CH-UA-Platform", "\"Android\"")
+		.build()
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		SortOrder.UPDATED,
