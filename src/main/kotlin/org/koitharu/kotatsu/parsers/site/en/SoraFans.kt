@@ -38,18 +38,20 @@ internal class SoraFans(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		val skip = (page - 1) * pageSize
-		val url = "$apiBaseUrl/Manga?limit=$pageSize&skip=$skip"
-		val response = webClient.httpGet(url).parseJsonArray()
+		val url = "$apiBaseUrl/Manga?limit=1000"
+		val response = runCatching { webClient.httpGet(url).parseJsonArray() }.getOrNull() ?: return emptyList()
 		val query = filter.query?.lowercase()
-		return response.mapJSONNotNull { item ->
+		val tagKey = filter.tags.firstOrNull()?.key?.lowercase()
+		val filtered = response.mapJSONNotNull { item ->
 			val manga = parseMangaItem(item)
-			if (query.isNullOrEmpty() || manga.title.lowercase().contains(query)) {
-				manga
-			} else {
-				null
-			}
+			val matchesQuery = query.isNullOrEmpty() || manga.title.lowercase().contains(query)
+			val matchesTag = tagKey.isNullOrEmpty() || manga.tags.any { it.key.lowercase() == tagKey }
+			if (matchesQuery && matchesTag) manga else null
 		}
+		val fromIndex = (page - 1) * pageSize
+		if (fromIndex >= filtered.size) return emptyList()
+		val toIndex = (fromIndex + pageSize).coerceAtMost(filtered.size)
+		return filtered.subList(fromIndex, toIndex)
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
@@ -159,7 +161,7 @@ internal class SoraFans(context: MangaLoaderContext) :
 	}
 
 	private suspend fun fetchTags(): Set<MangaTag> {
-		val url = "$apiBaseUrl/Manga?limit=100"
+		val url = "$apiBaseUrl/Manga?limit=1000"
 		val list = runCatching { webClient.httpGet(url).parseJsonArray() }.getOrNull() ?: return emptySet()
 		val tags = HashSet<MangaTag>()
 		list.mapJSON { item ->
