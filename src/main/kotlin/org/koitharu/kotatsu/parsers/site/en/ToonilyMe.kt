@@ -16,7 +16,7 @@ import java.util.*
 internal class ToonilyMe(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.TOONILY_ME, pageSize = 24) {
 
-	override val configKeyDomain = ConfigKey.Domain("toondex.io")
+	override val configKeyDomain = ConfigKey.Domain("toontop.io")
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
 
@@ -82,7 +82,7 @@ internal class ToonilyMe(context: MangaLoaderContext) :
 				branch = null,
 				source = source,
 			)
-		}.orEmpty()
+		}?.reversed().orEmpty()
 		return manga.copy(
 			title = m.optString("name").ifEmpty { manga.title },
 			altTitles = m.optJSONArray("altNames")?.mapJSONNotNull { it.optString("name").nullIfEmpty() }

@@ -12,11 +12,11 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("TOONDEX", "Toondex", "en")
-internal class Toondex(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.TOONDEX, pageSize = 24) {
+@MangaSourceParser("TOONTOP", "ToonTop", "en")
+internal class ToonTop(context: MangaLoaderContext) :
+	PagedMangaParser(context, MangaParserSource.TOONTOP, pageSize = 24) {
 
-	override val configKeyDomain = ConfigKey.Domain("toondex.io")
+	override val configKeyDomain = ConfigKey.Domain("toontop.io")
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
 
@@ -82,7 +82,7 @@ internal class Toondex(context: MangaLoaderContext) :
 				branch = null,
 				source = source,
 			)
-		}.orEmpty()
+		}?.reversed().orEmpty()
 		return manga.copy(
 			title = m.optString("name").ifEmpty { manga.title },
 			altTitles = m.optJSONArray("altNames")?.mapJSONNotNull { it.optString("name").nullIfEmpty() }

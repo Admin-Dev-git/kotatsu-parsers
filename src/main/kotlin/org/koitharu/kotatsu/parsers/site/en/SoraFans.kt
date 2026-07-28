@@ -1,0 +1,173 @@
+package org.koitharu.kotatsu.parsers.site.en
+
+import org.json.JSONArray
+import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.config.ConfigKey
+import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.util.*
+import org.koitharu.kotatsu.parsers.util.json.*
+import java.text.SimpleDateFormat
+import java.util.*
+
+@MangaSourceParser("SORA_FANS", "Sora.fans", "en")
+internal class SoraFans(context: MangaLoaderContext) :
+	PagedMangaParser(context, MangaParserSource.SORA_FANS, pageSize = 24) {
+
+	override val configKeyDomain = ConfigKey.Domain("sora.fans")
+	private val appId = "6a239b5e012a70fb928795c5"
+	private val apiBaseUrl = "https://sora.fans/api/apps/$appId/entities"
+
+	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
+
+	override val filterCapabilities: MangaListFilterCapabilities
+		get() = MangaListFilterCapabilities(
+			isSearchSupported = true,
+			isMultipleTagsSupported = true,
+		)
+
+	override suspend fun getFilterOptions() = MangaListFilterOptions(
+		availableTags = fetchTags(),
+	)
+
+	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+		super.onCreateConfig(keys)
+		keys.add(userAgentKey)
+	}
+
+	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+		val skip = (page - 1) * pageSize
+		val url = "$apiBaseUrl/Manga?limit=$pageSize&skip=$skip"
+		val response = webClient.httpGet(url).parseJsonArray()
+		val query = filter.query?.lowercase()
+		return response.mapJSONNotNull { item ->
+			val manga = parseMangaItem(item)
+			if (query.isNullOrEmpty() || manga.title.lowercase().contains(query)) {
+				manga
+			} else {
+				null
+			}
+		}
+	}
+
+	override suspend fun getDetails(manga: Manga): Manga {
+		val mangaId = manga.url.substringAfterLast('/')
+		val url = "$apiBaseUrl/Manga/$mangaId"
+		val m = webClient.httpGet(url).parseJson()
+		val chaptersUrl = "$apiBaseUrl/Chapter?manga_id=$mangaId&limit=1000"
+		val chaptersArray = runCatching { webClient.httpGet(chaptersUrl).parseJsonArray() }.getOrDefault(JSONArray())
+
+		val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+		dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+
+		val chapters = chaptersArray.mapJSON { jo ->
+			val id = jo.getString("id")
+			val chNumber = jo.optDouble("chapter_number", 0.0).toFloat()
+			val chTitle = jo.optString("title").ifEmpty { "Chapter $chNumber" }
+			MangaChapter(
+				id = generateUid(id),
+				title = chTitle,
+				number = chNumber,
+				volume = 0,
+				url = "/chapter/$id",
+				scanlator = null,
+				uploadDate = dateFormat.parseSafe(jo.optString("release_date").nullIfEmpty()),
+				branch = null,
+				source = source,
+			)
+		}.reversed()
+
+		val descriptionText = m.optString("description").nullIfEmpty()
+		val authorsSet: Set<String> = m.optString("author").nullIfEmpty()?.let { setOf(it) }.orEmpty()
+		val statusState: MangaState? = when (m.optString("status").lowercase()) {
+			"ongoing" -> MangaState.ONGOING
+			"completed" -> MangaState.FINISHED
+			else -> null
+		}
+		val ratingVal: Float = m.optDouble("rating", RATING_UNKNOWN.toDouble()).toFloat()
+
+		return manga.copy(
+			title = m.optString("title").ifEmpty { manga.title },
+			coverUrl = m.optString("cover_url").nullIfEmpty() ?: manga.coverUrl,
+			description = descriptionText,
+			tags = m.optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
+				val title = genre.toString()
+				MangaTag(
+					key = title.lowercase(),
+					title = title,
+					source = source,
+				)
+			}.orEmpty(),
+			authors = authorsSet,
+			state = statusState,
+			rating = ratingVal,
+			chapters = chapters,
+		)
+	}
+
+	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+		val chapterId = chapter.url.substringAfterLast('/')
+		val url = "$apiBaseUrl/Chapter/$chapterId"
+		val jo = webClient.httpGet(url).parseJson()
+		val images = jo.optJSONArray("pages") ?: return emptyList()
+		val len = images.length()
+		val pages = ArrayList<MangaPage>(len)
+		for (i in 0 until len) {
+			val imgUrl = images.getString(i)
+			pages.add(
+				MangaPage(
+					id = generateUid(imgUrl),
+					url = imgUrl,
+					preview = null,
+					source = source,
+				),
+			)
+		}
+		return pages
+	}
+
+	private fun parseMangaItem(item: JSONObject): Manga {
+		val id = item.getString("id")
+		val url = "/manga/$id"
+		val authorsSet: Set<String> = item.optString("author").nullIfEmpty()?.let { setOf(it) }.orEmpty()
+		val statusState: MangaState? = when (item.optString("status").lowercase()) {
+			"ongoing" -> MangaState.ONGOING
+			"completed" -> MangaState.FINISHED
+			else -> null
+		}
+		val ratingVal: Float = item.optDouble("rating", RATING_UNKNOWN.toDouble()).toFloat()
+
+		return Manga(
+			id = generateUid(id),
+			title = item.getString("title"),
+			altTitles = emptySet(),
+			url = url,
+			publicUrl = "https://$domain$url",
+			rating = ratingVal,
+			contentRating = null,
+			coverUrl = item.optString("cover_url").nullIfEmpty(),
+			tags = item.optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
+				val title = genre.toString()
+				MangaTag(key = title.lowercase(), title = title, source = source)
+			}.orEmpty(),
+			state = statusState,
+			authors = authorsSet,
+			source = source,
+		)
+	}
+
+	private suspend fun fetchTags(): Set<MangaTag> {
+		val url = "$apiBaseUrl/Manga?limit=100"
+		val list = runCatching { webClient.httpGet(url).parseJsonArray() }.getOrNull() ?: return emptySet()
+		val tags = HashSet<MangaTag>()
+		list.mapJSON { item ->
+			item.optJSONArray("genres")?.mapJSON { genre ->
+				val title = genre.toString()
+				tags.add(MangaTag(key = title.lowercase(), title = title, source = source))
+			}
+		}
+		return tags
+	}
+}
