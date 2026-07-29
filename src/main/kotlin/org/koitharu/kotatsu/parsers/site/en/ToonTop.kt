@@ -59,24 +59,25 @@ internal class ToonTop(context: MangaLoaderContext) :
 		val doc = webClient.httpGet(url).parseHtml()
 		val pageProps = extractPageProps(doc)
 		val items = pageProps.optJSONArray("items") ?: pageProps.optJSONArray("ssrItems")
-			?: return emptyList()
+			?: return parseMangaListFromDom(doc)
 		return items.mapJSON { item -> parseMangaItem(item) }
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
 		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
 		val pageProps = extractPageProps(doc)
-		val m = pageProps.getJSONObject("initialManga")
+		val m = pageProps.optJSONObject("initialManga") ?: pageProps.optJSONObject("manga")
+			?: return manga
 		val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
 		dateFormat.timeZone = TimeZone.getTimeZone("UTC")
 		val chapters = m.optJSONArray("chapters")?.mapJSON { jo ->
-			val slug = jo.getString("slug")
+			val slug = jo.optString("slug")
 			MangaChapter(
 				id = generateUid(slug),
 				title = jo.optString("name").nullIfEmpty(),
 				number = jo.optDouble("number", 0.0).toFloat(),
 				volume = 0,
-				url = jo.getString("url"),
+				url = jo.optString("url"),
 				scanlator = null,
 				uploadDate = dateFormat.parseSafe(jo.optString("updatedAt").nullIfEmpty()),
 				branch = null,
@@ -115,7 +116,9 @@ internal class ToonTop(context: MangaLoaderContext) :
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
 		val pageProps = extractPageProps(doc)
-		val images = pageProps.getJSONObject("initialChapter").getJSONArray("images")
+		val initialCh = pageProps.optJSONObject("initialChapter") ?: pageProps.optJSONObject("chapter")
+			?: return emptyList()
+		val images = initialCh.optJSONArray("images") ?: return emptyList()
 		val len = images.length()
 		val pages = ArrayList<MangaPage>(len)
 		for (i in 0 until len) {
@@ -134,9 +137,11 @@ internal class ToonTop(context: MangaLoaderContext) :
 
 	private fun extractPageProps(doc: Document): JSONObject {
 		val script = doc.selectFirst("script#__NEXT_DATA__")
-			?: throw IllegalStateException("__NEXT_DATA__ not found")
-		val json = JSONObject(script.data())
-		return json.getJSONObject("props").getJSONObject("pageProps")
+			?: doc.selectFirst("script:containsData(props)")
+			?: return JSONObject()
+		val rawData = script.data().nullIfEmpty() ?: script.html()
+		val json = runCatching { JSONObject(rawData) }.getOrNull() ?: return JSONObject()
+		return json.optJSONObject("props")?.optJSONObject("pageProps") ?: JSONObject()
 	}
 
 	private fun parseMangaItem(item: JSONObject): Manga {
@@ -163,10 +168,38 @@ internal class ToonTop(context: MangaLoaderContext) :
 		)
 	}
 
+	private fun parseMangaListFromDom(doc: Document): List<Manga> {
+		val elements = doc.select("div.manga-item, div.grid-item, a[href^=/]")
+		val list = ArrayList<Manga>()
+		for (el in elements) {
+			val href = el.attr("href").nullIfEmpty() ?: el.selectFirst("a")?.attr("href") ?: continue
+			if (!href.startsWith("/") || href.contains("/genres") || href.contains("/latest")) continue
+			val title = el.selectFirst(".title, h3, h4")?.text()?.nullIfEmpty() ?: el.text().nullIfEmpty() ?: continue
+			val cover = el.selectFirst("img")?.src()
+			list.add(
+				Manga(
+					id = generateUid(href),
+					title = title,
+					altTitles = emptySet(),
+					url = href,
+					publicUrl = href.toAbsoluteUrl(domain),
+					rating = RATING_UNKNOWN,
+					contentRating = null,
+					coverUrl = cover,
+					tags = emptySet(),
+					state = null,
+					authors = emptySet(),
+					source = source,
+				)
+			)
+		}
+		return list
+	}
+
 	private suspend fun fetchTags(): Set<MangaTag> {
-		val doc = webClient.httpGet("https://$domain/genres").parseHtml()
+		val doc = runCatching { webClient.httpGet("https://$domain/genres").parseHtml() }.getOrNull() ?: return emptySet()
 		val pageProps = extractPageProps(doc)
-		val genres = pageProps.getJSONArray("genres")
+		val genres = pageProps.optJSONArray("genres") ?: return emptySet()
 		return genres.mapJSONNotNullToSet { jo ->
 			val slug = jo.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
 			MangaTag(
