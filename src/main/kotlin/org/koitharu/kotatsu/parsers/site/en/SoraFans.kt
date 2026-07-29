@@ -3,9 +3,11 @@ package org.koitharu.kotatsu.parsers.site.en
 import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.AuthRequiredException
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.*
@@ -14,11 +16,27 @@ import java.util.*
 
 @MangaSourceParser("SORA_FANS", "Sora.fans", "en")
 internal class SoraFans(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.SORA_FANS, pageSize = 24) {
+	PagedMangaParser(context, MangaParserSource.SORA_FANS, pageSize = 24),
+	MangaParserAuthProvider {
 
 	override val configKeyDomain = ConfigKey.Domain("sora.fans")
 	private val appId = "6a239b5e012a70fb928795c5"
 	private val apiBaseUrl = "https://sora.fans/api/apps/$appId/entities"
+
+	override val authUrl: String
+		get() = "https://$domain"
+
+	override suspend fun isAuthorized(): Boolean {
+		return context.cookieJar.getCookies(domain).isNotEmpty()
+	}
+
+	override suspend fun getUsername(): String {
+		val url = "$apiBaseUrl/User/me"
+		val response = runCatching { webClient.httpGet(url).parseJson() }.getOrNull()
+		return response?.optString("email")?.nullIfEmpty()
+			?: response?.optString("name")?.nullIfEmpty()
+			?: if (isAuthorized()) "Logged In User" else throw AuthRequiredException(source)
+	}
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
 
