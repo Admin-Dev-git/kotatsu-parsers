@@ -112,14 +112,7 @@ internal class SoraFans(context: MangaLoaderContext) :
 			title = m.optString("title").ifEmpty { manga.title },
 			coverUrl = m.optString("cover_url").nullIfEmpty() ?: manga.coverUrl,
 			description = descriptionText,
-			tags = m.optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
-				val title = genre.toString()
-				MangaTag(
-					key = title.lowercase(),
-					title = title,
-					source = source,
-				)
-			}.orEmpty(),
+			tags = parseTags(m.optJSONArray("genres")),
 			authors = authorsSet,
 			state = statusState,
 			rating = ratingVal,
@@ -168,25 +161,33 @@ internal class SoraFans(context: MangaLoaderContext) :
 			rating = ratingVal,
 			contentRating = null,
 			coverUrl = item.optString("cover_url").nullIfEmpty(),
-			tags = item.optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
-				val title = genre.toString()
-				MangaTag(key = title.lowercase(), title = title, source = source)
-			}.orEmpty(),
+			tags = parseTags(item.optJSONArray("genres")),
 			state = statusState,
 			authors = authorsSet,
 			source = source,
 		)
 	}
 
+	private fun parseTags(genresArray: JSONArray?): Set<MangaTag> {
+		if (genresArray == null) return emptySet()
+		val tags = HashSet<MangaTag>()
+		for (i in 0 until genresArray.length()) {
+			val genreObj = genresArray.opt(i) ?: continue
+			val title = if (genreObj is JSONObject) genreObj.optString("name") else genreObj.toString()
+			if (title.isNotEmpty()) {
+				tags.add(MangaTag(key = title.lowercase(), title = title, source = source))
+			}
+		}
+		return tags
+	}
+
 	private suspend fun fetchTags(): Set<MangaTag> {
 		val url = "$apiBaseUrl/Manga?limit=1000"
 		val list = runCatching { webClient.httpGet(url).parseJsonArray() }.getOrNull() ?: return emptySet()
 		val tags = HashSet<MangaTag>()
-		list.mapJSON { item ->
-			item.optJSONArray("genres")?.mapJSON { genre ->
-				val title = genre.toString()
-				tags.add(MangaTag(key = title.lowercase(), title = title, source = source))
-			}
+		for (i in 0 until list.length()) {
+			val item = list.optJSONObject(i) ?: continue
+			tags.addAll(parseTags(item.optJSONArray("genres")))
 		}
 		return tags
 	}
