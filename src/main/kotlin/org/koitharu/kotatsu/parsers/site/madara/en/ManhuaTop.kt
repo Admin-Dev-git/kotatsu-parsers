@@ -7,4 +7,7 @@ import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 
 @MangaSourceParser("MANHUATOP", "ManhuaTop", "en")
 internal class ManhuaTop(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.MANHUATOP, "manhuatop.org")
+	MadaraParser(context, MangaParserSource.MANHUATOP, "manhuatop.org") {
+	override val listUrl = "manhua/"
+	override val withoutAjax = true
+}
